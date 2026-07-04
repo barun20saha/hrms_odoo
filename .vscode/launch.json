@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-DevApplication<dev>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.hrms.dev.DevApplication",
+            "projectName": "dev",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
