@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>My Accounts</title>
+
+<!-- PWA Meta Tags -->
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="My Accounts"/>
+<meta name="theme-color" content="#065f46"/>
+<meta name="description" content="My Accounts - Customer & Supplier Ledger"/>
+
+<!-- PWA Manifest (inline) -->
+<link rel="manifest" href="data:application/json;charset=utf-8,{
+  &quot;name&quot;:&quot;My Accounts&quot;,
+  &quot;short_name&quot;:&quot;My Accounts&quot;,
+  &quot;description&quot;:&quot;Customer and Supplier Ledger&quot;,
+  &quot;start_url&quot;:&quot;.&quot;,
+  &quot;display&quot;:&quot;standalone&quot;,
+  &quot;background_color&quot;:&quot;#065f46&quot;,
+  &quot;theme_color&quot;:&quot;#065f46&quot;,
+  &quot;orientation&quot;:&quot;portrait&quot;,
+  &quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;rect width='100' height='100' rx='20' fill='%23065f46'/&gt;&lt;text y='.9em' font-size='80' x='10'&gt;📒&lt;/text&gt;&lt;/svg&gt;&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]
+}"/>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+  // Suppress Babel in-browser transformer warning
+  const _warn = console.warn;
+  console.warn = (...args) => {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('Babel')) return;
+    _warn.apply(console, args);
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{background:#f5f5f5;font-family:'Segoe UI',system-ui,sans-serif;overscroll-behavior:none;}
+  input,textarea,button{font-family:inherit;}
+  ::-webkit-scrollbar{width:0;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useCallback,useRef,useEffect}=React;
+
+// ── constants ─────────────────────────────────────────────────
+const NAVY="#065f46",NAVY_LIGHT="#d1fae5";
+const GREEN="#2e7d32",GREEN_LIGHT="#e8f5e9";
+const TEAL="#065f46",TEAL_LIGHT="#d1fae5";
+const COLORS=["#1a3a6b","#1565c0","#2e7d32","#6a1b9a","#e65100","#00695c","#ad1457","#4e342e"];
+
+// ── helpers ───────────────────────────────────────────────────
+const uid=()=>Math.random().toString(36).slice(2)+Date.now();
+const todayStr=()=>new Date().toISOString().split("T")[0];
+const fmtAmt=n=>"₹"+Math.abs(n).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:2});
+const fmtDate=d=>new Date(d+"T00:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+const initials=n=>n.trim().split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+
+// ── DB ────────────────────────────────────────────────────────
+const INIT={customers:[],suppliers:[],transactions:{}};
+const DB_NAME="myaccounts",DB_STORE="data",DB_KEY="kb_v6";
+
+// Cookie storage as additional fallback (works in almost all WebViews)
+function saveToCookie(data){
+  try{
+    const str=encodeURIComponent(JSON.stringify(data));
+    // Split into chunks if needed (cookies have 4KB limit per cookie)
+    const chunkSize=3000;
+    const chunks=[];
+    for(let i=0;i<str.length;i+=chunkSize)chunks.push(str.slice(i,i+chunkSize));
+    document.cookie=`kb_chunks=${chunks.length};path=/;max-age=31536000`;
+    chunks.forEach((chunk,i)=>{
+      document.cookie=`kb_chunk_${i}=${chunk};path=/;max-age=31536000`;
+    });
+  }catch(e){}
+}
+
+function loadFromCookie(){
+  try{
+    const cookies=Object.fromEntries(document.cookie.split(";").map(c=>{const[k,v]=c.trim().split("=");return[k,v];}));
+    const count=parseInt(cookies["kb_chunks"]||"0");
+    if(!count)return null;
+    let str="";
+    for(let i=0;i<count;i++)str+=decodeURIComponent(cookies[`kb_chunk_${i}`]||"");
+    const parsed=JSON.parse(str);
+    return parsed&&parsed.customers?parsed:null;
+  }catch(e){return null;}
+}
+
+function persistData(data){
+  try{localStorage.setItem(DB_KEY,JSON.stringify(data));}catch(e){}
+  try{sessionStorage.setItem(DB_KEY,JSON.stringify(data));}catch(e){}
+  saveToCookie(data);
+  try{
+    const req=indexedDB.open(DB_NAME,1);
+    req.onupgradeneeded=e=>e.target.result.createObjectStore(DB_STORE);
+    req.onsuccess=e=>{
+      const tx=e.target.result.transaction(DB_STORE,"readwrite");
+      tx.objectStore(DB_STORE).put(JSON.stringify(data),DB_KEY);
+    };
+  }catch(e){}
+}
+
+function loadDB(){
+  // Try all storage methods in order of reliability
+  try{const d=JSON.parse(localStorage.getItem(DB_KEY)||"null");if(d&&d.customers)return d;}catch(e){}
+  try{const d=JSON.parse(sessionStorage.getItem(DB_KEY)||"null");if(d&&d.customers)return d;}catch(e){}
+  try{const d=loadFromCookie();if(d)return d;}catch(e){}
+  return INIT;
+}
+
+function useDB(){
+  const[db,setDB]=useState(loadDB);
+  const[ready,setReady]=useState(false);
+
+  useEffect(()=>{
+    // Try IndexedDB as most persistent option
+    try{
+      const req=indexedDB.open(DB_NAME,1);
+      req.onupgradeneeded=e=>e.target.result.createObjectStore(DB_STORE);
+      req.onsuccess=e=>{
+        const tx=e.target.result.transaction(DB_STORE,"readonly");
+        const get=tx.objectStore(DB_STORE).get(DB_KEY);
+        get.onsuccess=()=>{
+          if(get.result){
+            try{
+              const parsed=JSON.parse(get.result);
+              if(parsed&&parsed.customers){
+                setDB(parsed);
+                persistData(parsed); // sync to all other storages
+              }
+            }catch(e){}
+          }
+          setReady(true);
+        };
+        get.onerror=()=>setReady(true);
+      };
+      req.onerror=()=>setReady(true);
+    }catch(e){setReady(true);}
+  },[]);
+
+  const save=useCallback(next=>{
+    setDB(next);
+    persistData(next);
+  },[]);
+
+  return[db,save,ready];
+}
+
+// ── settlement helpers ────────────────────────────────────────
+const getSettled=tx=>(tx.settlements||[]).reduce((s,x)=>s+x.amount,0);
+const getPending=tx=>Math.max(0,tx.amount-getSettled(tx));
+const listStats=(ids,txMap,isSupplier=false)=>{
+  let totalGet=0,totalGive=0;
+  ids.forEach(id=>{
+    const txs=txMap[id]||[];
+    let gave=0,got=0;
+    txs.forEach(t=>{const p=getPending(t);if(t.type==="debit")gave+=p;else got+=p;});
+    const net=isSupplier?-(got-gave):(gave-got);
+    if(net>0)totalGet+=net;else totalGive+=Math.abs(net);
+  });
+  return{totalGet,totalGive};
+};
+const entityStats=txs=>{
+  let gave=0,got=0;
+  txs.forEach(t=>{const p=getPending(t);if(t.type==="debit")gave+=p;else got+=p;});
+  return{gave,got,balance:got-gave};
+};
+
+// ── styles ────────────────────────────────────────────────────
+const inp={width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"11px 14px",fontSize:14,outline:"none",background:"#f5f5f5",color:"#212121",marginTop:6};
+const lbl={display:"block",fontSize:11,fontWeight:600,color:"#757575",textTransform:"uppercase",letterSpacing:"0.06em",marginTop:14};
+
+// ── Modal ─────────────────────────────────────────────────────
+function Modal({open,onClose,title,children,center=false}){
+  const startY=useRef(0);
+  const[drag,setDrag]=useState(0);
+  if(!open)return null;
+  if(center){
+    const content=(
+      <div onClick={e=>e.target===e.currentTarget&&onClose()}
+        style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box",padding:"24px"}}>
+        <div onClick={e=>e.stopPropagation()}
+          style={{background:"#fff",borderRadius:20,width:"85vw",maxWidth:320,padding:"24px 20px 28px",boxShadow:"0 24px 64px rgba(0,0,0,0.4)"}}>
+          {title&&<h3 style={{marginBottom:16,fontSize:16,fontWeight:700}}>{title}</h3>}
+          {children}
+        </div>
+      </div>
+    );
+    return ReactDOM.createPortal(content, document.body);
+  }
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()}
+      style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div
+        onTouchStart={e=>{startY.current=e.touches[0].clientY;}}
+        onTouchMove={e=>{const d=e.touches[0].clientY-startY.current;if(d>0)setDrag(d);}}
+        onTouchEnd={()=>{if(drag>100){setDrag(0);onClose();}else setDrag(0);}}
+        style={{background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,
+          padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto",
+          transform:`translateY(${drag}px)`,transition:drag===0?"transform 0.3s ease":"none"}}>
+        <div style={{width:40,height:4,background:"#e0e0e0",borderRadius:2,margin:"0 auto 16px"}}/>
+        {title&&<h3 style={{marginBottom:16,fontSize:16,fontWeight:700}}>{title}</h3>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── EntityList ────────────────────────────────────────────────
+function EntityList({db,save,tab,accentColor,accentLight,onOpen,onModalChange}){
+  const listKey=tab==="customers"?"customers":"suppliers";
+  const entities=db[listKey]||[];
+  const[search,setSearch]=useState("");
+  const[showAdd,setShowAdd]=useState(false);
+  const[name,setName]=useState("");
+  const isSupplier=tab==="suppliers";
+  const stats=listStats(entities.map(e=>e.id),db.transactions,isSupplier);
+  const filtered=entities.filter(e=>e.name.toLowerCase().includes(search.toLowerCase()));
+
+  function openAdd(){setShowAdd(true);setName("");if(onModalChange)onModalChange(true);}
+  function closeAdd(){setShowAdd(false);setName("");if(onModalChange)onModalChange(false);}
+
+  function addEntity(){
+    if(!name.trim())return;
+    const id=uid();
+    const color=COLORS[entities.length%COLORS.length];
+    save({...db,[listKey]:[...entities,{id,name:name.trim(),color}],transactions:{...db.transactions,[id]:[]}});
+    closeAdd();
+  }
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100%",background:"#f7f8fa"}}>
+      {/* Summary cards */}
+      <div style={{background:accentColor,color:"#fff",padding:"18px 16px 22px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[["You will Get",stats.totalGet,"↑"],["You will Give",stats.totalGive,"↓"]].map(([label,val,icon])=>(
+            <div key={label} style={{background:"rgba(255,255,255,0.18)",borderRadius:14,padding:"12px 14px"}}>
+              <div style={{fontSize:10,opacity:0.8,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,fontWeight:600}}>{icon} {label}</div>
+              <div style={{fontSize:22,fontWeight:800,letterSpacing:"-0.5px"}}>{fmtAmt(val)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{background:"#fff",padding:"10px 14px",borderBottom:"1px solid #eef0f3"}}>
+        <div style={{display:"flex",alignItems:"center",background:"#f1f3f6",borderRadius:12,padding:"0 14px",gap:8}}>
+          <span style={{fontSize:15,color:"#aaa"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..."
+            style={{border:"none",background:"transparent",outline:"none",fontSize:14,flex:1,padding:"10px 0",color:"#212121"}}/>
+        </div>
+      </div>
+
+      {/* List */}
+      <div style={{flex:1,overflowY:"auto",paddingBottom:80}}>
+        {filtered.length===0?(
+          <div style={{textAlign:"center",padding:"64px 24px",color:"#bbb"}}>
+            <div style={{fontSize:52,marginBottom:14}}>📋</div>
+            <div style={{fontWeight:700,fontSize:16,marginBottom:6,color:"#888"}}>No {isSupplier?"Suppliers":"Customers"} Yet</div>
+            <div style={{fontSize:13,color:"#bbb"}}>Tap the button below to add one.</div>
+          </div>
+        ):filtered.map(e=>{
+          const txs=db.transactions[e.id]||[];
+          let gave=0,got=0;
+          txs.forEach(t=>{const p=getPending(t);if(t.type==="debit")gave+=p;else got+=p;});
+          let displayAmt,bl,bc,bgc;
+          if(isSupplier){
+            const owe=got-gave;
+            if(owe>0){displayAmt=owe;bl="to pay";bc=accentColor;bgc=accentLight;}
+            else if(owe<0){displayAmt=Math.abs(owe);bl="to receive";bc=GREEN;bgc=GREEN_LIGHT;}
+            else{displayAmt=0;bl="settled";bc="#aaa";bgc="#f5f5f5";}
+          }else{
+            const net=gave-got;
+            if(net>0){displayAmt=net;bl="to receive";bc=GREEN;bgc=GREEN_LIGHT;}
+            else if(net<0){displayAmt=Math.abs(net);bl="to pay";bc=accentColor;bgc=accentLight;}
+            else{displayAmt=0;bl="settled";bc="#aaa";bgc="#f5f5f5";}
+          }
+          return(
+            <div key={e.id} onClick={()=>onOpen(e.id)}
+              style={{background:"#fff",display:"flex",alignItems:"center",padding:"13px 16px",gap:13,borderBottom:"1px solid #f0f0f0",cursor:"pointer",activeBackground:"#f9f9f9"}}>
+              <div style={{width:44,height:44,borderRadius:14,background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:15,flexShrink:0,letterSpacing:"0.5px"}}>
+                {initials(e.name)}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:15,color:"#1a1a1a"}}>{e.name}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontWeight:700,fontSize:15,color:bc}}>{fmtAmt(displayAmt)}</div>
+                <div style={{fontSize:11,color:"#212121",marginTop:2}}>{bl}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add button */}
+      <div style={{padding:"10px 14px 18px",background:"#fff",borderTop:"1px solid #eef0f3",flexShrink:0}}>
+        <button onClick={openAdd}
+          style={{width:"100%",background:accentColor,color:"#fff",border:"none",borderRadius:14,padding:"14px",fontWeight:700,fontSize:15,cursor:"pointer",letterSpacing:"0.3px"}}>
+          + Add {isSupplier?"Supplier":"Customer"}
+        </button>
+      </div>
+
+      <Modal open={showAdd} onClose={closeAdd} title={`Add ${isSupplier?"Supplier":"Customer"}`} center={true}>
+        <span style={lbl}>Name *</span>
+        <input value={name} onChange={e=>setName(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&addEntity()}
+          placeholder={isSupplier?"e.g. ABC Traders":"e.g. Ramesh Kumar"} style={inp}/>
+        <button onClick={addEntity} style={{marginTop:18,width:"100%",border:"none",borderRadius:12,padding:"13px",fontWeight:700,fontSize:15,cursor:"pointer",background:accentColor,color:"#fff"}}>
+          Save
+        </button>
+      </Modal>
+    </div>
+  );
+}
+
+// ── Ledger ────────────────────────────────────────────────────
+function Ledger({db,save,entityId,listKey,accentColor,accentLight,onBack}){
+  const entities=db[listKey]||[];
+  const entity=entities.find(e=>e.id===entityId);
+  const allTxs=db.transactions[entityId]||[];
+  const isSupplier=listKey==="suppliers";
+
+  const[showAddTx,setShowAddTx]=useState(false);
+  const[txType,setTxType]=useState("debit");
+  const[txAmt,setTxAmt]=useState("");
+  const[txNote,setTxNote]=useState("");
+  const[txDate,setTxDate]=useState(todayStr());
+  const[detailId,setDetailId]=useState(null);
+  const[partialAmt,setPartialAmt]=useState("");
+  const[showPartial,setShowPartial]=useState(false);
+  const[editIdx,setEditIdx]=useState(null);
+  const[editVal,setEditVal]=useState("");
+  const[editErr,setEditErr]=useState("");
+  const[showDelEntity,setShowDelEntity]=useState(false);
+  const[editingNote,setEditingNote]=useState(false);
+  const[noteVal,setNoteVal]=useState("");
+  const[filterOn,setFilterOn]=useState(false);
+
+  if(!entity)return null;
+  const bal=entityStats(allTxs).balance;
+  const detailTx=detailId?allTxs.find(t=>t.id===detailId)||null:null;
+
+  function updateTxs(updater){
+    save({...db,transactions:{...db.transactions,[entityId]:updater(allTxs)}});
+  }
+  function openDetail(id){setDetailId(id);setPartialAmt("");setShowPartial(false);setEditIdx(null);setEditVal("");setEditErr("");setEditingNote(false);setNoteVal("");}
+  function closeDetail(){setDetailId(null);setEditIdx(null);setEditVal("");setEditErr("");setShowPartial(false);setPartialAmt("");setEditingNote(false);setNoteVal("");}
+
+  function saveTx(){
+    const amt=parseFloat(txAmt);
+    if(!amt||amt<=0)return;
+    if(!isSupplier&&txType==="credit"){
+      const pending=[...allTxs].sort((a,b)=>new Date(a.date)-new Date(b.date)||a.createdAt-b.createdAt).filter(t=>t.type==="debit"&&getPending(t)>0);
+      if(pending.length>0){
+        let rem=amt;
+        updateTxs(txs=>{
+          let upd=[...txs];
+          for(const d of pending){
+            if(rem<=0)break;
+            const p=getPending(d),apply=Math.min(rem,p);rem-=apply;
+            upd=upd.map(t=>t.id===d.id?{...t,settlements:[...(t.settlements||[]),{amount:apply,date:txDate||todayStr(),note:txNote.trim()}]}:t);
+          }
+          if(rem>0)upd=[...upd,{id:uid(),createdAt:Date.now(),type:"credit",amount:rem,note:txNote.trim()||"Surplus",date:txDate||todayStr(),settlements:[]}];
+          return upd;
+        });
+        setShowAddTx(false);setTxAmt("");setTxNote("");return;
+      }
+    }
+    if(isSupplier&&txType==="debit"){
+      const pending=[...allTxs].sort((a,b)=>new Date(a.date)-new Date(b.date)||a.createdAt-b.createdAt).filter(t=>t.type==="credit"&&getPending(t)>0);
+      if(pending.length>0){
+        let rem=amt;
+        updateTxs(txs=>{
+          let upd=[...txs];
+          for(const c of pending){
+            if(rem<=0)break;
+            const p=getPending(c),apply=Math.min(rem,p);rem-=apply;
+            upd=upd.map(t=>t.id===c.id?{...t,settlements:[...(t.settlements||[]),{amount:apply,date:txDate||todayStr(),note:txNote.trim()}]}:t);
+          }
+          if(rem>0)upd=[...upd,{id:uid(),createdAt:Date.now(),type:"debit",amount:rem,note:txNote.trim()||"Surplus payment",date:txDate||todayStr(),settlements:[]}];
+          return upd;
+        });
+        setShowAddTx(false);setTxAmt("");setTxNote("");return;
+      }
+    }
+    updateTxs(txs=>[...txs,{id:uid(),createdAt:Date.now(),type:txType,amount:amt,note:txNote.trim(),date:txDate||todayStr(),settlements:[]}]);
+    setShowAddTx(false);setTxAmt("");setTxNote("");
+  }
+
+  function settleFull(){
+    if(!detailTx)return;
+    const p=getPending(detailTx);if(p<=0)return;
+    updateTxs(txs=>txs.map(t=>t.id===detailTx.id?{...t,settlements:[...(t.settlements||[]),{amount:p,date:todayStr()}]}:t));
+  }
+  function settlePartial(){
+    if(!detailTx)return;
+    const amt=parseFloat(partialAmt),p=getPending(detailTx);
+    if(!amt||amt<=0||amt>p){setEditErr(`Enter valid amount (max ${fmtAmt(p)})`);return;}
+    updateTxs(txs=>txs.map(t=>t.id===detailTx.id?{...t,settlements:[...(t.settlements||[]),{amount:amt,date:todayStr()}]}:t));
+    setPartialAmt("");setShowPartial(false);setEditErr("");
+  }
+  function removeSettlement(idx){
+    if(!detailTx)return;
+    updateTxs(txs=>txs.map(t=>t.id===detailTx.id?{...t,settlements:t.settlements.filter((_,i)=>i!==idx)}:t));
+  }
+  function startEdit(idx){if(!detailTx)return;setEditIdx(idx);setEditVal(String(detailTx.settlements[idx].amount));setEditErr("");setShowPartial(false);}
+  function saveEdit(){
+    if(!detailTx||editIdx===null)return;
+    const amt=parseFloat(editVal);
+    if(!amt||amt<=0){setEditErr("Enter valid amount");return;}
+    const other=detailTx.settlements.reduce((s,x,i)=>i!==editIdx?s+x.amount:s,0);
+    const max=detailTx.amount-other;
+    if(amt>max){setEditErr(`Max allowed: ${fmtAmt(max)}`);return;}
+    updateTxs(txs=>txs.map(t=>t.id===detailTx.id?{...t,settlements:t.settlements.map((s,i)=>i===editIdx?{...s,amount:amt}:s)}:t));
+    setEditIdx(null);setEditVal("");setEditErr("");
+  }
+  function deleteTx(){if(!detailTx)return;updateTxs(txs=>txs.filter(t=>t.id!==detailTx.id));closeDetail();}
+  function deleteEntity(){
+    const next={...db,[listKey]:entities.filter(e=>e.id!==entityId),transactions:{...db.transactions}};
+    delete next.transactions[entityId];save(next);onBack();
+  }
+
+  // Build payments list — actual settlements received (customers) or made (suppliers)
+  const allPayments = [];
+  allTxs.forEach(tx => {
+    (tx.settlements||[]).forEach(s => {
+      allPayments.push({
+        id: tx.id + "_" + s.date + "_" + s.amount,
+        txId: tx.id,
+        amount: s.amount,
+        date: s.date,
+        note: s.note || tx.note || "",
+        txType: tx.type
+      });
+    });
+  });
+  // Customer: payments = settlements on debit txs (money coming back)
+  // Supplier: payments = settlements on credit txs (money you paid out)
+  const relevantPayments = allPayments
+    .filter(p => isSupplier ? p.txType === "credit" : p.txType === "debit")
+    .sort((a,b) => new Date(b.date) - new Date(a.date));
+  const paymentTotal = relevantPayments.reduce((s,p) => s + p.amount, 0);
+
+  const sorted=[...allTxs].sort((a,b)=>new Date(b.date)-new Date(a.date)||b.createdAt-a.createdAt);
+  const groups={};
+  sorted.forEach(t=>{if(!groups[t.date])groups[t.date]=[];groups[t.date].push(t);});
+  const dates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+
+  // balance display logic for ledger
+  let balDisplay, balColor;
+  if(isSupplier){
+    const gave_=entityStats(allTxs).gave, got_=entityStats(allTxs).got;
+    const owe=got_-gave_;
+    if(owe>0){balDisplay=`You will give ${fmtAmt(owe)}`;balColor="#ffcdd2";}
+    else if(owe<0){balDisplay=`You will get ${fmtAmt(Math.abs(owe))}`;balColor="#a5d6a7";}
+    else{balDisplay="All Settled";balColor="#fff";}
+  }else{
+    const gave_=entityStats(allTxs).gave, got_=entityStats(allTxs).got;
+    const net=gave_-got_;
+    if(net>0){balDisplay=`You will get ${fmtAmt(net)}`;balColor="#a5d6a7";}
+    else if(net<0){balDisplay=`You will give ${fmtAmt(Math.abs(net))}`;balColor="#ffcdd2";}
+    else{balDisplay="All Settled";balColor="#fff";}
+  }
+
+  const tabLabel = isSupplier ? "Payments Made" : "Payments Received";
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#f7f8fa"}}>
+      {/* Header */}
+      <div style={{background:accentColor,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <div onClick={onBack} style={{cursor:"pointer",width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>←</div>
+        <div style={{flex:1,fontWeight:700,fontSize:17,letterSpacing:"0.2px"}}>{entity.name}</div>
+        <div onClick={()=>setShowDelEntity(true)} style={{cursor:"pointer",width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>✕</div>
+      </div>
+
+      {/* Balance */}
+      <div style={{background:accentColor,paddingBottom:20,flexShrink:0}}>
+        <div style={{margin:"0 16px",background:"rgba(255,255,255,0.18)",borderRadius:14,padding:"14px 18px",textAlign:"center"}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.75)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6,fontWeight:600}}>Current Balance</div>
+          <div style={{fontSize:20,fontWeight:800,color:balColor,letterSpacing:"-0.5px"}}>{balDisplay}</div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{padding:"10px 16px 0",background:"#f7f8fa",flexShrink:0}}>
+        <div style={{display:"flex",background:"#e8eaed",borderRadius:12,padding:3}}>
+          {[["all","All Entries"],["payments",tabLabel]].map(([val,label])=>{
+            const active=(val==="all"&&!filterOn)||(val==="payments"&&filterOn);
+            return(
+              <div key={val} onClick={()=>setFilterOn(val==="payments")}
+                style={{flex:1,textAlign:"center",padding:"9px 6px",borderRadius:10,cursor:"pointer",
+                  background:active?"#fff":"transparent",
+                  color:active?accentColor:"#999",
+                  fontWeight:active?700:500,fontSize:13,
+                  boxShadow:active?"0 1px 4px rgba(0,0,0,0.12)":"none",
+                  transition:"all 0.15s"}}>
+                {label}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Transaction list */}
+      <div style={{flex:1,overflowY:"auto",paddingTop:8}}>
+        {filterOn ? (
+          // ── PAYMENTS VIEW ──
+          relevantPayments.length === 0 ? (
+            <div style={{textAlign:"center",padding:"64px 24px",color:"#bbb"}}>
+              <div style={{fontSize:52,marginBottom:14}}>💸</div>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:6,color:"#888"}}>No Payments Yet</div>
+              <div style={{fontSize:13,color:"#bbb"}}>Payments will appear here once you settle transactions.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{margin:"0 16px 10px",background:isSupplier?accentLight:GREEN_LIGHT,borderRadius:12,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:12,fontWeight:600,color:isSupplier?accentColor:GREEN,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total {tabLabel}</span>
+                <span style={{fontSize:18,fontWeight:800,color:isSupplier?accentColor:GREEN}}>{fmtAmt(paymentTotal)}</span>
+              </div>
+              {relevantPayments.map((p,i)=>(
+                <div key={p.id} onClick={()=>openDetail(p.txId)}
+                  style={{background:"#fff",display:"flex",alignItems:"center",padding:"13px 16px",gap:12,borderBottom:"1px solid #f0f0f0",cursor:"pointer"}}>
+                  <div style={{width:40,height:40,borderRadius:12,flexShrink:0,
+                    background:isSupplier?accentLight:GREEN_LIGHT,
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>
+                    {isSupplier?"↗":"↙"}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#333",marginBottom:2}}>
+                      {isSupplier?"Payment Made":"Payment Received"}
+                    </div>
+                    {p.note?<div style={{fontSize:12,color:"#aaa",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.note}</div>:null}
+                    <div style={{fontSize:11,color:"#212121",marginTop:2}}>{fmtDate(p.date)}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontWeight:700,fontSize:15,color:isSupplier?accentColor:GREEN}}>
+                      {isSupplier?"−":"+"}  {fmtAmt(p.amount)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )
+        ) : (
+          // ── ALL ENTRIES VIEW ──
+          sorted.length===0?(
+            <div style={{textAlign:"center",padding:"64px 24px",color:"#bbb"}}>
+              <div style={{fontSize:52,marginBottom:14}}>📝</div>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:6,color:"#888"}}>No Entries Yet</div>
+              <div style={{fontSize:13,color:"#bbb"}}>Use the buttons below to add a transaction.</div>
+            </div>
+          ):dates.map(date=>(
+            <div key={date}>
+              <div style={{padding:"10px 16px 5px",fontSize:11,fontWeight:700,color:"#212121",textTransform:"uppercase",letterSpacing:"0.08em",background:"#f7f8fa"}}>{fmtDate(date)}</div>
+              {groups[date].map(tx=>{
+                const pending=getPending(tx),settled=getSettled(tx);
+                const isFullySettled=pending<=0&&tx.amount>0;
+                const isPartial=settled>0&&pending>0;
+                const isCredit=tx.type==="credit";
+                return(
+                  <div key={tx.id} onClick={()=>openDetail(tx.id)}
+                    style={{background:"#fff",display:"flex",alignItems:"center",padding:"13px 16px",gap:12,borderBottom:"1px solid #f0f0f0",cursor:"pointer"}}>
+                    <div style={{width:40,height:40,borderRadius:12,flexShrink:0,
+                      background:isFullySettled?GREEN_LIGHT:isCredit?GREEN_LIGHT:accentLight,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>
+                      {isFullySettled?"✓":isCredit?"↙":"↗"}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      {tx.note&&<div style={{fontSize:13,fontWeight:500,color:"#444",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.note}</div>}
+                      {isFullySettled&&<span style={{fontSize:11,color:GREEN,fontWeight:600}}>✓ Settled</span>}
+                      {isPartial&&<span style={{fontSize:11,color:"#212121"}}>{fmtAmt(pending)} left</span>}
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontWeight:700,fontSize:15,color:isFullySettled?GREEN:"#212121"}}>
+                        {isCredit?"+":""}{fmtAmt(tx.amount)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div style={{display:"flex",padding:"10px 14px 18px",gap:10,background:"#fff",borderTop:"1px solid #eef0f3",flexShrink:0}}>
+        <button onClick={()=>{setTxType("debit");setTxAmt("");setTxNote("");setTxDate(todayStr());setShowAddTx(true);}}
+          style={{flex:1,border:"none",borderRadius:14,padding:"13px 8px",fontWeight:700,fontSize:14,cursor:"pointer",background:accentLight,color:accentColor}}>
+          − You Gave
+        </button>
+        <button onClick={()=>{setTxType("credit");setTxAmt("");setTxNote("");setTxDate(todayStr());setShowAddTx(true);}}
+          style={{flex:1,border:"none",borderRadius:14,padding:"13px 8px",fontWeight:700,fontSize:14,cursor:"pointer",background:GREEN_LIGHT,color:GREEN}}>
+          + You Got
+        </button>
+      </div>
+
+      {/* ADD TX */}
+      <Modal open={showAddTx} onClose={()=>setShowAddTx(false)} title="Add Transaction">
+        <div style={{display:"flex",border:"1.5px solid #e0e0e0",borderRadius:10,overflow:"hidden",background:"#f5f5f5"}}>
+          {[["debit","− You Gave"],["credit","+ You Got"]].map(([t,label])=>(
+            <div key={t} onClick={()=>setTxType(t)} style={{flex:1,padding:"11px 8px",textAlign:"center",fontSize:13,fontWeight:600,cursor:"pointer",
+              background:txType===t?(t==="debit"?accentLight:GREEN_LIGHT):"transparent",
+              color:txType===t?(t==="debit"?accentColor:GREEN):"#757575"}}>
+              {label}
+            </div>
+          ))}
+        </div>
+        <span style={lbl}>Amount *</span>
+        <div style={{display:"flex",alignItems:"center",border:"1.5px solid #e0e0e0",borderRadius:10,background:"#f5f5f5",overflow:"hidden",marginTop:6}}>
+          <span style={{padding:"12px 10px 12px 14px",fontWeight:700,color:"#757575",fontSize:16}}>₹</span>
+          <input type="number" value={txAmt} onChange={e=>setTxAmt(e.target.value)} placeholder="0" min="0" step="0.01"
+            style={{border:"none",background:"transparent",outline:"none",fontSize:18,fontWeight:600,flex:1,padding:"12px 14px 12px 4px",color:"#212121"}}/>
+        </div>
+        <span style={lbl}>Note (optional)</span>
+        <textarea value={txNote} onChange={e=>setTxNote(e.target.value)} placeholder="e.g. Grocery bill, Rent..." rows={3}
+          style={{...inp,resize:"vertical",lineHeight:"1.5"}}/>
+        <span style={lbl}>Date</span>
+        <input type="date" value={txDate} onChange={e=>setTxDate(e.target.value)} style={inp}/>
+        <button onClick={saveTx} style={{marginTop:20,width:"100%",border:"none",borderRadius:10,padding:14,fontWeight:700,fontSize:15,cursor:"pointer",
+          background:txType==="debit"?accentColor:GREEN,color:"#fff"}}>
+          Save — {txType==="debit"?"You Gave":"You Got"}
+        </button>
+      </Modal>
+
+      {/* DETAIL */}
+      <Modal open={!!detailTx} onClose={closeDetail} title="Transaction Detail">
+        {detailTx&&(()=>{
+          const tx=detailTx,pending=getPending(tx),settled=getSettled(tx),isDebit=tx.type==="debit",ac=isDebit?accentColor:GREEN;
+          return(
+            <>
+              <div style={{background:"#f5f5f5",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                {[["Type",isDebit?"↗ You Gave":"↙ You Got"],["Amount",(isDebit?"":"+")+fmtAmt(tx.amount)],["Date",fmtDate(tx.date)]].map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <span style={{fontSize:12,color:"#757575"}}>{k}</span>
+                    <span style={{fontWeight:600,fontSize:13,color:k==="Amount"?ac:"#212121"}}>{v}</span>
+                  </div>
+                ))}
+                <div style={{marginTop:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontSize:12,color:"#757575"}}>Note</span>
+                    {!editingNote&&tx.note&&<span onClick={()=>{setEditingNote(true);setNoteVal(tx.note||"");}} style={{fontSize:11,color:accentColor,fontWeight:600,cursor:"pointer"}}>✏ Edit</span>}
+                  </div>
+                  {editingNote?(
+                    <>
+                      <textarea value={noteVal} onChange={e=>setNoteVal(e.target.value)}
+                        rows={3} style={{width:"100%",border:"1.5px solid "+accentColor,borderRadius:8,padding:"8px 10px",fontSize:13,outline:"none",background:"#fff",color:"#212121",resize:"vertical",lineHeight:"1.5",fontFamily:"inherit"}}/>
+                      <div style={{display:"flex",gap:8,marginTop:6}}>
+                        <button onClick={()=>{updateTxs(txs=>txs.map(t=>t.id===tx.id?{...t,note:noteVal.trim()}:t));setEditingNote(false);}}
+                          style={{flex:1,border:"none",borderRadius:8,padding:"8px",fontWeight:700,fontSize:13,cursor:"pointer",background:accentColor,color:"#fff"}}>Save</button>
+                        <button onClick={()=>setEditingNote(false)}
+                          style={{flex:1,border:"none",borderRadius:8,padding:"8px",fontWeight:600,fontSize:13,cursor:"pointer",background:"#e0e0e0",color:"#555"}}>Cancel</button>
+                      </div>
+                    </>
+                  ):tx.note?(
+                    <div style={{fontSize:13,fontWeight:600,color:"#212121",whiteSpace:"pre-wrap",lineHeight:"1.5"}}>
+                      {tx.note}
+                    </div>
+                  ):(
+                    <button onClick={()=>{setEditingNote(true);setNoteVal("");}}
+                      style={{width:"100%",border:"1.5px dashed #e0e0e0",borderRadius:8,padding:"10px",fontWeight:600,fontSize:13,cursor:"pointer",background:"transparent",color:"#9e9e9e",textAlign:"left"}}>
+                      + Add a note...
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button onClick={deleteTx} style={{width:"100%",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",background:"#ffebee",color:"#c62828",marginBottom:16}}>
+                ✖ Delete Entry
+              </button>
+              <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",color:"#212121",marginBottom:10}}>Settle This Transaction</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                {[["Total",fmtAmt(tx.amount),"#212121"],["Settled",fmtAmt(settled),GREEN],["Pending",fmtAmt(pending),accentColor]].map(([l,v,c])=>(
+                  <div key={l} style={{background:"#f5f5f5",borderRadius:8,padding:"8px 6px",textAlign:"center"}}>
+                    <div style={{fontSize:10,color:"#757575",marginBottom:2}}>{l}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              {pending<=0?(
+                <div style={{background:GREEN_LIGHT,color:GREEN,borderRadius:10,padding:"12px 14px",textAlign:"center",fontWeight:700,fontSize:14,marginBottom:14}}>✓ Fully Settled!</div>
+              ):(
+                <>
+                  <div style={{display:"flex",gap:8,marginBottom:10}}>
+                    <button onClick={settleFull} style={{flex:1,border:"none",borderRadius:8,padding:"10px 8px",fontWeight:600,fontSize:12,cursor:"pointer",background:GREEN_LIGHT,color:GREEN}}>
+                      ✓ {isDebit?"Mark Received":"Mark Paid"}<br/><span style={{fontSize:11,opacity:0.8}}>Full {fmtAmt(pending)}</span>
+                    </button>
+                    <button onClick={()=>{setShowPartial(!showPartial);setPartialAmt("");setEditErr("");}} style={{flex:1,border:"1.5px solid #e0e0e0",borderRadius:8,padding:"10px 8px",fontWeight:600,fontSize:12,cursor:"pointer",background:showPartial?"#fff3e0":"#f5f5f5",color:showPartial?"#f57c00":"#757575"}}>
+                      ⟳ Partial<br/><span style={{fontSize:11,opacity:0.8}}>Enter amount</span>
+                    </button>
+                  </div>
+                  {showPartial&&(
+                    <div style={{marginBottom:14}}>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <div style={{display:"flex",flex:1,border:"1.5px solid #e0e0e0",borderRadius:8,overflow:"hidden",background:"#f5f5f5"}}>
+                          <span style={{padding:"9px 6px 9px 12px",fontWeight:700,color:"#757575",fontSize:14}}>₹</span>
+                          <input type="number" value={partialAmt} onChange={e=>{setPartialAmt(e.target.value);setEditErr("");}}
+                            placeholder={`max ${Math.round(pending)}`} min="0.01" step="0.01"
+                            style={{border:"none",background:"transparent",outline:"none",fontSize:14,flex:1,padding:"9px 8px 9px 2px",color:"#212121"}}/>
+                        </div>
+                        <button onClick={settlePartial} style={{border:"none",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer",background:accentColor,color:"#fff"}}>Save</button>
+                      </div>
+                      {editErr&&<div style={{fontSize:11,color:"#c62828",marginTop:5}}>{editErr}</div>}
+                    </div>
+                  )}
+                </>
+              )}
+              {tx.settlements&&tx.settlements.length>0&&(
+                <>
+                  <div style={{fontSize:11,fontWeight:600,color:"#757575",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8,marginTop:4}}>Settlement History</div>
+                  {tx.settlements.map((s,i)=>(
+                    <div key={i} style={{borderRadius:8,marginBottom:8,padding:"10px 12px",background:editIdx===i?"#fff8e1":GREEN_LIGHT,border:editIdx===i?"1.5px solid #f57c00":"1.5px solid transparent"}}>
+                      {editIdx===i?(
+                        <>
+                          <div style={{fontSize:11,color:"#f57c00",fontWeight:600,marginBottom:8}}>Edit Payment #{i+1}</div>
+                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                            <div style={{display:"flex",flex:1,border:"1.5px solid #e0e0e0",borderRadius:8,overflow:"hidden",background:"#fff"}}>
+                              <span style={{padding:"9px 6px 9px 12px",fontWeight:700,color:"#757575",fontSize:14}}>₹</span>
+                              <input type="number" value={editVal} onChange={e=>{setEditVal(e.target.value);setEditErr("");}} min="0.01" step="0.01"
+                                style={{border:"none",background:"transparent",outline:"none",fontSize:14,flex:1,padding:"9px 8px 9px 2px",color:"#212121"}}/>
+                            </div>
+                            <button onClick={saveEdit} style={{border:"none",borderRadius:8,padding:"10px 14px",fontWeight:700,fontSize:13,cursor:"pointer",background:GREEN,color:"#fff"}}>Save</button>
+                            <button onClick={()=>{setEditIdx(null);setEditVal("");setEditErr("");}} style={{border:"none",borderRadius:8,padding:"10px 10px",fontWeight:600,fontSize:13,cursor:"pointer",background:"#f5f5f5",color:"#757575"}}>✕</button>
+                          </div>
+                          {editErr&&<div style={{fontSize:11,color:"#c62828",marginTop:6}}>{editErr}</div>}
+                        </>
+                      ):(
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{flex:1}}>
+                            <span style={{fontSize:13,color:GREEN,fontWeight:700}}>✓ {fmtAmt(s.amount)}</span>
+                            {s.note&&<div style={{fontSize:11,color:"#555",marginTop:1}}>{s.note}</div>}
+                            <div style={{fontSize:11,color:"#212121",marginTop:1}}>{fmtDate(s.date)}</div>
+                          </div>
+                          <button onClick={()=>startEdit(i)} style={{border:"none",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",background:"#fff3e0",color:"#f57c00"}}>Edit</button>
+                          <button onClick={()=>removeSettlement(i)} style={{border:"none",borderRadius:6,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",background:"#f5f5f5",color:"#757575"}}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+              <button onClick={closeDetail} style={{width:"100%",border:"none",borderRadius:10,padding:"13px",fontWeight:600,fontSize:14,cursor:"pointer",background:"#f5f5f5",color:"#757575",marginTop:8}}>Close</button>
+            </>
+          );
+        })()}
+      </Modal>
+
+      <Modal open={showDelEntity} onClose={()=>setShowDelEntity(false)} title={`Delete ${isSupplier?"Supplier":"Customer"}?`}>
+        <p style={{fontSize:14,color:"#555",marginBottom:20}}>This will permanently delete <b>{entity.name}</b> and all their transactions.</p>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setShowDelEntity(false)} style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:600,fontSize:14,cursor:"pointer",background:"#f5f5f5",color:"#757575"}}>Cancel</button>
+          <button onClick={deleteEntity} style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer",background:accentColor,color:"#fff"}}>Delete</button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────
+function App(){
+  const[db,save,ready]=useDB();
+  const[tab,setTab]=useState(0);
+  const[openId,setOpenId]=useState(null);
+  const[openList,setOpenList]=useState(null);
+  const[showBackup,setShowBackup]=useState(false);
+  const[importErr,setImportErr]=useState("");
+  const[importOk,setImportOk]=useState(false);
+  const[copied,setCopied]=useState(false);
+  const[importText,setImportText]=useState("");
+  const[showPaste,setShowPaste]=useState(false);
+  const[showDeleteByDate,setShowDeleteByDate]=useState(false);
+  const[deleteFrom,setDeleteFrom]=useState("");
+  const[deleteTo,setDeleteTo]=useState("");
+  const[deleteConfirm,setDeleteConfirm]=useState(false);
+  const[deleteResult,setDeleteResult]=useState("");
+  const fileInputRef=useRef(null);
+
+  function countEntriesByDate(){
+    if(!deleteFrom&&!deleteTo)return 0;
+    let count=0;
+    const from=deleteFrom?new Date(deleteFrom):null;
+    const to=deleteTo?new Date(deleteTo):null;
+    Object.values(db.transactions).forEach(txs=>{
+      txs.forEach(tx=>{
+        const d=new Date(tx.date);
+        if((!from||d>=from)&&(!to||d<=to))count++;
+      });
+    });
+    return count;
+  }
+
+  function deleteEntriesByDate(){
+    if(!deleteFrom&&!deleteTo)return;
+    const from=deleteFrom?new Date(deleteFrom):null;
+    const to=deleteTo?new Date(deleteTo):null;
+    let count=0;
+    const newTxs={};
+    Object.entries(db.transactions).forEach(([id,txs])=>{
+      newTxs[id]=txs.filter(tx=>{
+        const d=new Date(tx.date);
+        const inRange=(!from||d>=from)&&(!to||d<=to);
+        if(inRange)count++;
+        return !inRange;
+      });
+    });
+    save({...db,transactions:newTxs});
+    setDeleteResult(`Deleted ${count} entr${count===1?"y":"ies"} successfully.`);
+    setDeleteConfirm(false);
+    setDeleteFrom("");setDeleteTo("");
+    setTimeout(()=>{setDeleteResult("");setShowDeleteByDate(false);},2000);
+  }
+
+  function handleFileImport(e){
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const parsed=JSON.parse(ev.target.result);
+        if(!parsed.customers||!parsed.suppliers||!parsed.transactions){setImportErr("Invalid backup file.");return;}
+        save({customers:parsed.customers,suppliers:parsed.suppliers,transactions:parsed.transactions});
+        setImportErr("");setImportOk(true);
+        setTimeout(()=>{setImportOk(false);setShowBackup(false);},1500);
+      }catch{setImportErr("Could not read file.");}
+    };
+    reader.readAsText(file);e.target.value="";
+  }
+
+  // Expose restore function globally so Android Java can call it
+  useEffect(()=>{
+    window.restoreFromAndroid=(jsonStr)=>{
+      try{
+        const parsed=JSON.parse(jsonStr);
+        if(!parsed.customers||!parsed.suppliers||!parsed.transactions){setImportErr("Invalid backup file.");return;}
+        save({customers:parsed.customers,suppliers:parsed.suppliers,transactions:parsed.transactions});
+        setImportErr("");setImportOk(true);
+        setTimeout(()=>{setImportOk(false);setShowBackup(false);},1500);
+      }catch{setImportErr("Could not read file.");}
+    };
+  },[save]);
+
+  const swipeStart=useRef(null);
+  const[modalOpen,setModalOpen]=useState(false);
+
+  function onTouchStart(e){if(modalOpen)return;swipeStart.current=e.touches[0].clientX;}
+  function onTouchEnd(e){
+    if(modalOpen||swipeStart.current===null)return;
+    const diff=swipeStart.current-e.changedTouches[0].clientX;
+    if(Math.abs(diff)>60)setTab(diff>0?1:0);
+    swipeStart.current=null;
+  }
+
+  function exportBackup(){
+    const data=JSON.stringify({...db,exportedAt:new Date().toISOString(),version:"kb_v6"});
+    const filename=`my-accounts-backup-${new Date().toISOString().split("T")[0]}.json`;
+    // If Android WebView bridge is available, use it
+    if(window.AndroidBridge&&window.AndroidBridge.saveFile){
+      window.AndroidBridge.saveFile(filename, data);
+      setCopied(true);setTimeout(()=>setCopied(false),2500);
+      return;
+    }
+    // Web fallback: Blob download
+    try{
+      const blob=new Blob([data],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=filename;
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
+      setCopied(true);setTimeout(()=>setCopied(false),2500);
+    }catch{
+      // Last resort: clipboard
+      navigator.clipboard&&navigator.clipboard.writeText(data);
+      setCopied(true);setTimeout(()=>setCopied(false),2500);
+    }
+  }
+
+  function triggerImport(){
+    // If Android WebView bridge is available, use it
+    if(window.AndroidBridge&&window.AndroidBridge.openFilePicker){
+      window.AndroidBridge.openFilePicker();
+      return;
+    }
+    // Web fallback: file input
+    fileInputRef.current?.click();
+  }
+
+  if(!ready){
+    return(
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#f5f5f5",flexDirection:"column",gap:16}}>
+        <div style={{fontSize:40}}>📒</div>
+        <div style={{fontSize:16,fontWeight:600,color:"#065f46"}}>MY ACCOUNTS</div>
+        <div style={{fontSize:13,color:"#9e9e9e"}}>Loading your data...</div>
+      </div>
+    );
+  }
+
+  if(openId&&openList){
+    return(
+      <div style={{maxWidth:480,margin:"0 auto",height:"100vh",background:"#f5f5f5"}}>
+        <Ledger db={db} save={save} entityId={openId} listKey={openList}
+          accentColor={openList==="customers"?NAVY:TEAL}
+          accentLight={openList==="customers"?NAVY_LIGHT:TEAL_LIGHT}
+          onBack={()=>{setOpenId(null);setOpenList(null);}}/>
+      </div>
+    );
+  }
+
+  const accent=tab===0?NAVY:TEAL;
+  const accentDark="#022c22";
+
+  return(
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      style={{maxWidth:480,margin:"0 auto",height:"100vh",background:"#f5f5f5",display:"flex",flexDirection:"column"}}>
+
+      <div style={{background:accent,color:"#fff",padding:"16px 16px 0",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",marginBottom:14}}>
+          <div style={{flex:1,fontSize:20,fontWeight:800,letterSpacing:"0.5px"}}>MY ACCOUNTS</div>
+          <button onClick={()=>{setShowDeleteByDate(true);setDeleteFrom("");setDeleteTo("");setDeleteConfirm(false);setDeleteResult("");}}
+            style={{background:"rgba(255,255,255,0.18)",border:"none",borderRadius:10,padding:"7px 14px",color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",marginRight:8}}>
+            Delete
+          </button>
+          <button onClick={()=>{setShowBackup(true);setImportErr("");setImportOk(false);}}
+            style={{background:"rgba(255,255,255,0.18)",border:"none",borderRadius:10,padding:"7px 14px",color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",letterSpacing:"0.2px"}}>
+            ☁ Backup
+          </button>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {["Customers","Suppliers"].map((label,i)=>(
+            <div key={i} onClick={()=>setTab(i)}
+              style={{flex:1,textAlign:"center",padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",
+                color:tab===i?"#fff":"rgba(255,255,255,0.55)",
+                borderBottom:tab===i?"3px solid #fff":"3px solid transparent",transition:"all 0.2s"}}>
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{flex:1,overflow:"hidden",position:"relative"}}>
+        <div style={{display:"flex",width:"200%",height:"100%",transform:`translateX(${tab===0?"0%":"-50%"})`,transition:"transform 0.3s ease"}}>
+          <div style={{width:"50%",height:"100%",overflow:"hidden"}}>
+            <EntityList db={db} save={save} tab="customers" accentColor={NAVY} accentLight={NAVY_LIGHT} onOpen={id=>{setOpenId(id);setOpenList("customers");}} onModalChange={setModalOpen}/>
+          </div>
+          <div style={{width:"50%",height:"100%",overflow:"hidden"}}>
+            <EntityList db={db} save={save} tab="suppliers" accentColor={TEAL} accentLight={TEAL_LIGHT} onOpen={id=>{setOpenId(id);setOpenList("suppliers");}} onModalChange={setModalOpen}/>
+          </div>
+        </div>
+      </div>
+
+      <Modal open={showDeleteByDate} onClose={()=>{setShowDeleteByDate(false);setDeleteConfirm(false);setDeleteResult("");}} title="Delete Entries by Date">
+        <p style={{fontSize:13,color:"#555",marginBottom:16}}>Remove all transactions within a date range across all customers and suppliers.</p>
+
+        <span style={lbl}>From Date</span>
+        <input type="date" value={deleteFrom} onChange={e=>{setDeleteFrom(e.target.value);setDeleteConfirm(false);}} style={inp}/>
+
+        <span style={lbl}>To Date</span>
+        <input type="date" value={deleteTo} onChange={e=>{setDeleteTo(e.target.value);setDeleteConfirm(false);}} style={inp}/>
+
+        {(deleteFrom||deleteTo)&&!deleteConfirm&&!deleteResult&&(()=>{
+          const count=countEntriesByDate();
+          return(
+            <div style={{background:"#fff8e1",borderRadius:10,padding:"12px 14px",marginTop:14,fontSize:13,color:"#555"}}>
+              <span style={{fontWeight:700,color:"#f57c00"}}>{count} entr{count===1?"y":"ies"}</span> found in this range.
+            </div>
+          );
+        })()}
+
+        {deleteConfirm&&(
+          <div style={{background:"#ffebee",borderRadius:10,padding:"12px 14px",marginTop:14,fontSize:13,color:"#c62828",fontWeight:600}}>
+            ⚠ This cannot be undone. Are you sure?
+          </div>
+        )}
+
+        {deleteResult&&(
+          <div style={{background:GREEN_LIGHT,color:GREEN,borderRadius:10,padding:"12px 14px",marginTop:14,fontSize:13,fontWeight:600}}>
+            ✓ {deleteResult}
+          </div>
+        )}
+
+        {!deleteResult&&(
+          <div style={{display:"flex",gap:8,marginTop:16}}>
+            {!deleteConfirm?(
+              <>
+                <button onClick={()=>{setShowDeleteByDate(false);setDeleteConfirm(false);}}
+                  style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:600,fontSize:14,cursor:"pointer",background:"#f5f5f5",color:"#757575"}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{if(deleteFrom||deleteTo)setDeleteConfirm(true);}}
+                  disabled={!deleteFrom&&!deleteTo}
+                  style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:700,fontSize:14,cursor:(deleteFrom||deleteTo)?"pointer":"not-allowed",background:(deleteFrom||deleteTo)?"#ffebee":"#f5f5f5",color:(deleteFrom||deleteTo)?"#c62828":"#bbb"}}>
+                  Delete
+                </button>
+              </>
+            ):(
+              <>
+                <button onClick={()=>setDeleteConfirm(false)}
+                  style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:600,fontSize:14,cursor:"pointer",background:"#f5f5f5",color:"#757575"}}>
+                  Go Back
+                </button>
+                <button onClick={deleteEntriesByDate}
+                  style={{flex:1,border:"none",borderRadius:10,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer",background:"#c62828",color:"#fff"}}>
+                  Confirm Delete
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={showBackup} onClose={()=>{setShowBackup(false);setImportErr("");}} title="Backup & Restore">
+        <div style={{fontSize:12,fontWeight:600,color:"#757575",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Export</div>
+        <button onClick={exportBackup}
+          style={{width:"100%",border:"none",borderRadius:10,padding:"14px",fontWeight:700,fontSize:15,cursor:"pointer",background:copied?GREEN:NAVY,color:"#fff",marginBottom:6,transition:"background 0.3s"}}>
+          {copied?"✓ File Downloaded!":"⬇ Download Backup File"}
+        </button>
+        <p style={{fontSize:11,color:"#9e9e9e",marginBottom:20}}>Downloads a .json file — upload it to Google Drive for safekeeping</p>
+
+        <div style={{height:1,background:"#e0e0e0",marginBottom:20}}/>
+
+        <div style={{fontSize:12,fontWeight:600,color:"#757575",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Restore</div>
+        <button onClick={triggerImport}
+          style={{width:"100%",border:"2px dashed #e0e0e0",borderRadius:10,padding:"14px",fontWeight:700,fontSize:15,cursor:"pointer",background:"#f5f5f5",color:"#555",marginBottom:8}}>
+          📂 Choose Backup File
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileImport} style={{display:"none"}}/>
+        <p style={{fontSize:11,color:"#9e9e9e",marginBottom:12}}>Select a previously downloaded .json backup file</p>
+
+        {importErr&&<div style={{background:"#ffebee",color:"#c62828",borderRadius:8,padding:"10px 14px",fontSize:13,marginBottom:10}}>⚠ {importErr}</div>}
+        {importOk&&<div style={{background:GREEN_LIGHT,color:GREEN,borderRadius:8,padding:"10px 14px",fontSize:13,fontWeight:600,marginBottom:10}}>✓ Data restored successfully!</div>}
+
+        <button onClick={()=>{setShowBackup(false);setImportErr("");}}
+          style={{width:"100%",border:"none",borderRadius:10,padding:"13px",fontWeight:600,fontSize:14,cursor:"pointer",background:"#f5f5f5",color:"#757575",marginTop:4}}>
+          Close
+        </button>
+      </Modal>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+
+// Register Service Worker for offline use
+if('serviceWorker' in navigator){
+  const swCode=`
+    const CACHE='myaccounts-v1';
+    self.addEventListener('install',e=>{
+      e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['.','./index.html'])));
+      self.skipWaiting();
+    });
+    self.addEventListener('activate',e=>{self.clients.claim();});
+    self.addEventListener('fetch',e=>{
+      e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>caches.match('./index.html'))));
+    });
+  `;
+  const blob=new Blob([swCode],{type:'application/javascript'});
+  const swUrl=URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(()=>{});
+}
+</script>
+</body>
+</html>
