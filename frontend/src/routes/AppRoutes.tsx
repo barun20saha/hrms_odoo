@@ -20,6 +20,7 @@ import EmployeeProfile from '../pages/employee/Profile'
 import EmployeeAttendance from '../pages/employee/Attendance'
 import EmployeeLeaves from '../pages/employee/Leaves'
 import EmployeePayroll from '../pages/employee/Payroll'
+import { Accounts } from '../pages/employee/Accounts'
 
 // Admin Portal Pages
 import AdminDashboard from '../pages/admin/Dashboard'
@@ -69,6 +70,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/employee/attendance" element={<EmployeeAttendance />} />
           <Route path="/employee/leaves" element={<EmployeeLeaves />} />
           <Route path="/employee/payroll" element={<EmployeePayroll />} />
+          <Route path="/employee/accounts" element={<Accounts />} />
         </Route>
       </Route>
 
@@ -80,6 +82,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/admin/attendance" element={<AdminAttendance />} />
           <Route path="/admin/leaves" element={<AdminLeaves />} />
           <Route path="/admin/payroll" element={<AdminPayroll />} />
+          <Route path="/admin/accounts" element={<Accounts />} />
         </Route>
       </Route>
 

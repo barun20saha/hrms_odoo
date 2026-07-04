@@ -18,7 +18,8 @@ import {
   Moon,
   ChevronLeft,
   ChevronRight,
-  User
+  User,
+  BookOpen
 } from 'lucide-react'
 
 export const DashboardLayout: React.FC = () => {
@@ -51,6 +52,7 @@ export const DashboardLayout: React.FC = () => {
         { path: '/admin/attendance', name: 'Attendance', icon: Calendar },
         { path: '/admin/leaves', name: 'Leave Approvals', icon: FileSpreadsheet },
         { path: '/admin/payroll', name: 'Payroll Control', icon: CreditCard },
+        { path: '/admin/accounts', name: 'My Accounts', icon: BookOpen },
       ]
     : [
         { path: '/employee/dashboard', name: 'Dashboard', icon: LayoutDashboard },
@@ -58,6 +60,7 @@ export const DashboardLayout: React.FC = () => {
         { path: '/employee/attendance', name: 'Attendance History', icon: Calendar },
         { path: '/employee/leaves', name: 'Apply Leave', icon: FileSpreadsheet },
         { path: '/employee/payroll', name: 'My Salaries', icon: CreditCard },
+        { path: '/employee/accounts', name: 'My Accounts', icon: BookOpen },
       ]
 
   return (
@@ -65,10 +68,10 @@ export const DashboardLayout: React.FC = () => {
       {/* --- DESKTOP SIDEBAR --- */}
       <motion.aside
         animate={{ width: sidebarOpen ? 260 : 80 }}
-        className="hidden md:flex flex-col bg-slate-900 text-slate-100 border-r border-slate-800 shrink-0 select-none relative"
+        className="hidden md:flex flex-col bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 border-r border-gray-100 dark:border-slate-800 shrink-0 select-none relative"
       >
         {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 overflow-hidden">
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100 dark:border-slate-800 overflow-hidden">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">
               H
@@ -77,7 +80,7 @@ export const DashboardLayout: React.FC = () => {
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="font-bold text-lg tracking-wider"
+                className="font-bold text-lg tracking-wider text-gray-800 dark:text-white"
               >
                 HRMS
               </motion.span>
@@ -85,7 +88,7 @@ export const DashboardLayout: React.FC = () => {
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 absolute -right-3 top-5 border border-slate-700 shadow-md"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-400 absolute -right-3 top-5 border border-gray-100 dark:border-slate-700 shadow-md"
           >
             {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
           </button>
@@ -102,11 +105,11 @@ export const DashboardLayout: React.FC = () => {
                 to={link.path}
                 className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${
                   isActive
-                    ? 'bg-blue-600 text-white font-medium shadow-md shadow-blue-500/20'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                 }`}
               >
-                <Icon size={20} className={isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-100'} />
+                <Icon size={20} className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 group-hover:text-gray-600 dark:text-slate-400 dark:group-hover:text-slate-100'} />
                 {sidebarOpen && (
                   <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                     {link.name}
@@ -118,12 +121,12 @@ export const DashboardLayout: React.FC = () => {
         </nav>
 
         {/* Sidebar Footer Logout */}
-        <div className="p-3 border-t border-slate-800">
+        <div className="p-3 border-t border-gray-100 dark:border-slate-800">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-200 group"
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-gray-500 dark:text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-colors duration-200 group"
           >
-            <LogOut size={20} className="group-hover:text-red-400" />
+            <LogOut size={20} className="group-hover:text-red-500" />
             {sidebarOpen && <span>Sign Out</span>}
           </button>
         </div>
@@ -139,7 +142,7 @@ export const DashboardLayout: React.FC = () => {
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              className="fixed inset-0 bg-black z-40 md:hidden"
+              className="fixed inset-0 bg-black/40 z-40 md:hidden"
             />
             {/* Sidebar drawer */}
             <motion.aside
@@ -147,16 +150,16 @@ export const DashboardLayout: React.FC = () => {
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 20 }}
-              className="fixed inset-y-0 left-0 w-64 bg-slate-900 text-slate-100 z-50 flex flex-col md:hidden border-r border-slate-800"
+              className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 z-50 flex flex-col md:hidden border-r border-gray-100 dark:border-slate-800"
             >
-              <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
+              <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">
                     H
                   </div>
-                  <span className="font-bold text-lg tracking-wider">HRMS</span>
+                  <span className="font-bold text-lg tracking-wider text-gray-800 dark:text-white">HRMS</span>
                 </div>
-                <button onClick={() => setMobileOpen(false)} className="text-slate-400 hover:text-slate-100 p-1">
+                <button onClick={() => setMobileOpen(false)} className="text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-100 p-1">
                   <X size={20} />
                 </button>
               </div>
@@ -170,19 +173,21 @@ export const DashboardLayout: React.FC = () => {
                       to={link.path}
                       onClick={() => setMobileOpen(false)}
                       className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 ${
-                        isActive ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                        isActive
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold'
+                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                       }`}
                     >
-                      <Icon size={20} />
+                      <Icon size={20} className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'} />
                       <span>{link.name}</span>
                     </Link>
                   )
                 })}
               </nav>
-              <div className="p-3 border-t border-slate-800">
+              <div className="p-3 border-t border-gray-100 dark:border-slate-800">
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-gray-500 dark:text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-colors"
                 >
                   <LogOut size={20} />
                   <span>Sign Out</span>

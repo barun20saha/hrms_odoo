@@ -194,15 +194,15 @@ export const Dashboard: React.FC = () => {
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorDays" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0}/>
+                    <stop offset="5%" stopColor="#0288D1" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#0288D1" stopOpacity={0.0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false}/>
                 <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false}/>
                 <Tooltip />
-                <Area type="monotone" dataKey="days" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorDays)" />
+                <Area type="monotone" dataKey="days" stroke="#0288D1" strokeWidth={2} fillOpacity={1} fill="url(#colorDays)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
